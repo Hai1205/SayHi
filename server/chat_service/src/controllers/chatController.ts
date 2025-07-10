@@ -1,443 +1,340 @@
-import TryCatch from "../utils/services/customTryCatch.js";
-import { prisma, redisClient } from "../utils/configs/database.js";
-import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
-import { JWT_SECRET_KEY, MAIL_QUEUE } from "../utils/services/constants.js";
-import { createOTP, parseRequestData } from "../utils/services/helper.js";
-import { sendMessageAndWaitResponse } from "../utils/configs/rabbitmq.js";
-import { STATUS } from "@prisma/client";
+import { Chat } from "../models/chatModel";
+import { Messages } from "../models/messageModel";
+import { sendMessageAndWaitResponse } from "../utils/configs/rabbitmq";
+import { getReceiverSocketId, io } from "../utils/configs/socket";
+import { CHAT_QUEUE } from "../utils/services/constants";
+import TryCatch from "../utils/services/customTryCatch";
 
-export const getAllUsers = TryCatch(async (req, res) => {
-  const users = await prisma.user.findMany();
-  res.json(users);
-});
+export const createNewChat = TryCatch(
+  async (req: IAuthenticatedRequest, res) => {
+    const userId = req.params.userId;
+    const { otherUserId } = req.body;
 
-export const getUserById = async (userId: string) => {
-  const user = await prisma.user.findUnique({
-    where: {
-      id: userId,
-    },
-  });
+    if (!otherUserId) {
+      res.status(400).json({
+        message: "Other userId is required",
+      });
+      return;
+    }
 
-  if (!user) {
-    throw new Error("User not found");
+    const existingChat = await Chat.findOne({
+      users: { $all: [userId, otherUserId], $size: 2 },
+    });
+
+    if (existingChat) {
+      res.json({
+        message: "Chat already exist",
+        chatId: existingChat._id,
+      });
+      return;
+    }
+
+    const newChat = await Chat.create({
+      users: [userId, otherUserId],
+    });
+
+    res.status(201).json({
+      message: "New Chat created",
+      chatId: newChat._id,
+    });
   }
+);
 
-  return user;
-};
-
-export const getProfile = TryCatch(async (req, res) => {
+export const getUserChats = TryCatch(async (req: IAuthenticatedRequest, res) => {
   const userId = req.params.userId;
-  const user = await getUserById(userId as string);
-  res.json(user);
-});
-
-export const createUser = TryCatch(async (req, res) => {
-  const data = parseRequestData(req);
-  const { name, email, password } = data;
-
-  const existingUser = await prisma.user.findUnique({
-    where: { email }
-  });
-
-  if (existingUser) {
-    return res.status(400).json({
-      success: false,
-      message: "User already exists"
+  if (!userId) {
+    res.status(400).json({
+      message: " UserId missing",
     });
+    return;
   }
 
-  const hashPassword = await bcrypt.hash(password, 10);
+  const chats = await Chat.find({ users: userId }).sort({ updatedAt: -1 });
 
-  const userData: any = {
-    name,
-    email,
-    password: hashPassword
-  };
+  const chatWithUserData = await Promise.all(
+    chats.map(async (chat) => {
+      const otherUserId = chat.users.find((id) => id !== userId);
 
-  if (req.files && Array.isArray(req.files) && req.files.length > 0) {
-    const avatarFile = req.files.find(file => file.fieldname === 'avatar');
-    if (avatarFile) {
-      userData.avatar = avatarFile.path;
-    }
-  }
+      const unseenCount = await Messages.countDocuments({
+        chatId: chat._id,
+        sender: { $ne: userId },
+        seen: false,
+      });
 
-  const user = await prisma.user.create({
-    data: userData
-  });
+      try {
+        const result = await sendMessageAndWaitResponse(CHAT_QUEUE, {
+          action: 'get_user_by_id',
+          data: { userId }
+        }) as IRabbitMQResult;
+      
+        if (!result.success) {
+          res.status(result.status || 400).json({
+            message: result.message
+          });
+      
+          return;
+        }
 
-  res.status(201).json({
-    success: true,
-    message: "User created successfully",
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      avatar: user.avatar
-    }
-  });
-});
-
-export const updateUser = TryCatch(async (req, res) => {
-  const userId = req.params.userId;
-  const data = parseRequestData(req);
-
-  const existingUser = await prisma.user.findUnique({
-    where: { id: userId }
-  });
-
-  if (!existingUser) {
-    return res.status(404).json({
-      success: false,
-      message: "User not found"
-    });
-  }
-
-  const updateData: any = {};
-
-  if (data.name) updateData.name = data.name;
-  if (data.email) updateData.email = data.email;
-  if (data.password) updateData.password = await bcrypt.hash(data.password, 10);
-
-  if (req.files && Array.isArray(req.files) && req.files.length > 0) {
-    const avatarFile = req.files.find(file => file.fieldname === 'avatar');
-    if (avatarFile) {
-      updateData.avatar = avatarFile.path;
-    }
-  }
-
-  const updatedUser = await prisma.user.update({
-    where: { id: userId },
-    data: updateData
-  });
-
-  res.json({
-    success: true,
-    message: "User updated successfully",
-    user: {
-      name: updatedUser.name,
-      email: updatedUser.email,
-      avatar: updatedUser.avatar
-    }
-  });
-});
-
-export const deleteUser = TryCatch(async (req, res) => {
-  const userId = req.params.userId;
-
-  const existingUser = await prisma.user.findUnique({
-    where: { id: userId }
-  });
-
-  if (!existingUser) {
-    return res.status(404).json({
-      success: false,
-      message: "User not found"
-    });
-  }
-
-  await prisma.user.delete({
-    where: { id: userId }
-  });
-
-  res.json({
-    success: true,
-    message: "User deleted successfully"
-  });
-});
-
-export const registerUser = async (data: { name: string; email: string; password: string }) => {
-  try {
-    const { name, email, password } = data;
-
-    const existingUser = await prisma.user.findUnique({ where: { email } });
-    if (existingUser) {
-      return {
-        success: false,
-        status: 400,
-        message: "User already exists",
-      };
-    }
-
-    const hashPassword = await bcrypt.hash(password, 10);
-
-    const user = await prisma.user.create({
-      data: { name, email, password: hashPassword },
-    });
-
-    const otpResult = await createAndStoreOTP(email);
-    if ('error' in otpResult) {
-      return {
-        success: false,
-        status: otpResult.status,
-        message: otpResult.error,
-      };
-    }
-
-    const message = {
-      to: email,
-      subject: "Welcome to Say Hi",
-      body: `Welcome to Say Hi ${name}. Your OTP is ${otpResult.otp}.`,
-    };
-    const mailResult = await sendMail(message);
-    if (!mailResult.success) {
-      return mailResult;
-    }
-
-    return {
-      success: true,
-      status: 201,
-      message: "User registered successfully",
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-      },
-    };
-  } catch (error) {
-    console.error("Error in registerUser:", error);
-    return {
-      success: false,
-      status: 500,
-      message: "Internal server error",
-    };
-  }
-};
-
-const createAndStoreOTP = async (email: string) => {
-  const rateLimitKey = `otp:ratelimit:${email}`;
-  const existing = await redisClient.get(rateLimitKey);
-
-  if (existing) {
-    return { error: 'Too many requests', status: 429 };
-  }
-
-  const otp = createOTP();
-  const otpKey = `otp:${email}`;
-
-  await redisClient.set(otpKey, otp, { EX: 60 * 5 });
-  await redisClient.set(rateLimitKey, '1', { EX: 60 });
-
-  return { otp };
-};
-
-const sendMail = async (message: object) => {
-  const result = await sendMessageAndWaitResponse(MAIL_QUEUE, {
-    action: 'send_mail',
-    data: message,
-  }) as IRabbitMQResult;
-
-  if (!result.success) {
-    return { success: false, status: result.status, message: result.message };
-  }
-
-  return {
-    success: true,
-    status: 200,
-    message: 'Mail sent',
-    data: result.data
-  };
-};
-
-export const verifyOTP = async (data: { email: string, otp: string }) => {
-  const { email, otp } = data;
-
-  const otpKey = `otp:${email}`;
-  const storedOTP = await redisClient.get(otpKey);
-
-  if (storedOTP !== otp) {
-    return { success: false, status: 400, message: 'Invalid OTP' };
-  }
-
-  const user = await prisma.user.findUnique({ where: { email } });
-
-  if (!user) {
-    return {
-      success: false,
-      status: 404,
-      message: 'User not found'
-    };
-  }
-
-  await prisma.user.update({
-    where: { email },
-    data: { status: STATUS.ACTIVE }
-  });
-
-  await redisClient.del(otpKey);
-
-  return {
-    success: true,
-    status: 200,
-    message: 'OTP verified',
-  };
-};
-
-export const resendOTP = async (data: { email: string }) => {
-  const otpResult = await createAndStoreOTP(data.email);
-  if ('error' in otpResult) {
-    return otpResult;
-  }
-
-  const message = {
-    to: data.email,
-    subject: "Welcome to Say Hi",
-    body: `Welcome to Say Hi. Your OTP is ${otpResult.otp}.`,
-  };
-  const mailResult = await sendMail(message);
-  if (!mailResult.success) {
-    return mailResult;
-  }
-
-  return {
-    success: true,
-    status: 200,
-    message: 'OTP resent'
-  };
-};
-
-export const loginUser = async (data: { email: string; password: string }) => {
-  try {
-    const { email, password } = data;
-
-    const user = await prisma.user.findUnique({
-      where: { email }
-    });
-
-    if (!user) {
-      return {
-        success: false,
-        status: 404,
-        message: "User not found"
-      };
-    }
-
-    const isMatch = await bcrypt.compare(password, user.password);
-
-    if (!isMatch) {
-      return {
-        success: false,
-        status: 400,
-        message: "Invalid password"
-      };
-    }
-
-    const loginKey = `login:${email}`;
-    const storedLogin = await redisClient.get(loginKey);
-    if (storedLogin) {
-      return {
-        success: false,
-        status: 400,
-        message: "User already logged in"
-      };
-    }
-
-    const token = jwt.sign({
-      id: user.id,
-      role: user?.role
-    }, JWT_SECRET_KEY, {
-      expiresIn: "7d"
-    });
-
-    return {
-      success: true,
-      status: 200,
-      message: "Logged in successfully",
-      token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role
+        return {
+          user: result.data,
+          chat: {
+            ...chat.toObject(),
+            latestMessage: chat.latestMessage || null,
+            unseenCount,
+          },
+        };
+      } catch (error) {
+        console.log(error);
+        return {
+          user: { _id: otherUserId, name: "Unknown User" },
+          chat: {
+            ...chat.toObject(),
+            latestMessage: chat.latestMessage || null,
+            unseenCount,
+          },
+        };
       }
-    };
-  } catch (error) {
-    console.error('Error in loginUser:', error);
-    return {
-      success: false,
-      status: 500,
-      message: "Internal server error"
-    };
-  }
-};
+    })
+  );
 
-export const logoutUser = async (data: { email: string }) => {
-  const { email } = data;
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) {
-    return { success: false, status: 404, message: 'User not found' };
-  }
-
-  const loginKey = `login:${email}`;
-  const storedLogin = await redisClient.get(loginKey);
-  if (!storedLogin) {
-    return {
-      success: false,
-      status: 400,
-      message: "User not logged in"
-    };
-  }
-
-  await redisClient.del(loginKey);
-
-  return {
-    success: true,
-    status: 200,
-    message: "Logged out successfully"
-  };
-}
-
-export const createAdminUser = TryCatch(async (req: IAuthenticatedRequest, res) => {
-  const data = parseRequestData(req);
-  const { name, email, password } = data;
-
-  if (!name || !email || !password) {
-    return res.status(400).json({
-      success: false,
-      message: "Vui lòng cung cấp đầy đủ thông tin"
-    });
-  }
-
-  const existingUser = await prisma.user.findUnique({
-    where: { email }
-  });
-
-  if (existingUser) {
-    return res.status(400).json({
-      success: false,
-      message: "User already exists"
-    });
-  }
-
-  const hashPassword = await bcrypt.hash(password, 10);
-
-  const userData: any = {
-    name,
-    email,
-    password: hashPassword,
-    role: 'ADMIN'
-  };
-
-  if (req.files && Array.isArray(req.files) && req.files.length > 0) {
-    const avatarFile = req.files.find(file => file.fieldname === 'avatar');
-    if (avatarFile) {
-      userData.avatar = avatarFile.path;
-    }
-  }
-
-  const user = await prisma.user.create({
-    data: userData
-  });
-
-  res.status(201).json({
-    success: true,
-    message: "Admin user created successfully",
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      avatar: user.avatar
-    }
+  res.json({
+    chats: chatWithUserData,
   });
 });
+
+export const sendMessage = TryCatch(async (req: IAuthenticatedRequest, res) => {
+  const senderId = req.params.senderId;
+  const { chatId, text } = req.body;
+  const imageFile = req.file;
+
+  if (!senderId) {
+    res.status(401).json({
+      message: "unauthorized",
+    });
+    return;
+  }
+  if (!chatId) {
+    res.status(400).json({
+      message: "ChatId Required",
+    });
+    return;
+  }
+
+  if (!text && !imageFile) {
+    res.status(400).json({
+      message: "Either text or image is required",
+    });
+    return;
+  }
+
+  const chat = await Chat.findById(chatId);
+
+  if (!chat) {
+    res.status(404).json({
+      message: "Chat not found",
+    });
+    return;
+  }
+
+  const isUserInChat = chat.users.some(
+    (userId) => userId.toString() === senderId.toString()
+  );
+
+  if (!isUserInChat) {
+    res.status(403).json({
+      message: "You are not a participant of this chat",
+    });
+    return;
+  }
+
+  const otherUserId = chat.users.find(
+    (userId) => userId.toString() !== senderId.toString()
+  );
+
+  if (!otherUserId) {
+    res.status(401).json({
+      message: "No other user",
+    });
+    return;
+  }
+
+  //socket setup
+  const receiverSocketId = getReceiverSocketId(otherUserId.toString());
+  let isReceiverInChatRoom = false;
+
+  if (receiverSocketId) {
+    const receiverSocket = io.sockets.sockets.get(receiverSocketId);
+    if (receiverSocket && receiverSocket.rooms.has(chatId)) {
+      isReceiverInChatRoom = true;
+    }
+  }
+
+  let messageData: any = {
+    chatId: chatId,
+    sender: senderId,
+    seen: isReceiverInChatRoom,
+    seenAt: isReceiverInChatRoom ? new Date() : undefined,
+  };
+
+  if (imageFile) {
+    messageData.image = {
+      url: imageFile.path,
+      publicId: imageFile.filename,
+    };
+    messageData.messageType = "image";
+    messageData.text = text || "";
+  } else {
+    messageData.text = text;
+    messageData.messageType = "text";
+  }
+
+  const message = new Messages(messageData);
+
+  const savedMessage = await message.save();
+
+  const latestMessageText = imageFile ? "📷 Image" : text;
+
+  await Chat.findByIdAndUpdate(
+    chatId,
+    {
+      latestMessage: {
+        text: latestMessageText,
+        sender: senderId,
+      },
+      updatedAt: new Date(),
+    },
+    { new: true }
+  );
+
+  //emit to sockets
+  io.to(chatId).emit("newMessage", savedMessage);
+
+  if (receiverSocketId) {
+    io.to(receiverSocketId).emit("newMessage", savedMessage);
+  }
+
+  const senderSocketId = getReceiverSocketId(senderId.toString());
+  if (senderSocketId) {
+    io.to(senderSocketId).emit("newMessage", savedMessage);
+  }
+
+  if (isReceiverInChatRoom && senderSocketId) {
+    io.to(senderSocketId).emit("messagesSeen", {
+      chatId: chatId,
+      seenBy: otherUserId,
+      messageIds: [savedMessage._id],
+    });
+  }
+
+  res.status(201).json({
+    message: savedMessage,
+    sender: senderId,
+  });
+});
+
+export const getMessagesByChat = TryCatch(
+  async (req: IAuthenticatedRequest, res) => {
+    const {userId, chatId} = req.params;
+
+    if (!userId) {
+      res.status(401).json({
+        message: "Unauthorized",
+      });
+      return;
+    }
+
+    if (!chatId) {
+      res.status(400).json({
+        message: "ChatId Required",
+      });
+      return;
+    }
+
+    const chat = await Chat.findById(chatId);
+
+    if (!chat) {
+      res.status(404).json({
+        message: "Chat not found",
+      });
+      return;
+    }
+
+    const isUserInChat = chat.users.some(
+      (userId) => userId.toString() === userId.toString()
+    );
+
+    if (!isUserInChat) {
+      res.status(403).json({
+        message: "You are not a participant of this chat",
+      });
+      return;
+    }
+
+    const messagesToMarkSeen = await Messages.find({
+      chatId: chatId,
+      sender: { $ne: userId },
+      seen: false,
+    });
+
+    await Messages.updateMany(
+      {
+        chatId: chatId,
+        sender: { $ne: userId },
+        seen: false,
+      },
+      {
+        seen: true,
+        seenAt: new Date(),
+      }
+    );
+
+    const messages = await Messages.find({ chatId }).sort({ createdAt: 1 });
+
+    const otherUserId = chat.users.find((id) => id !== userId);
+
+    try {
+      const result = await sendMessageAndWaitResponse(CHAT_QUEUE, {
+        action: 'get_user_by_id',
+        data: { userId }
+      }) as IRabbitMQResult;
+    
+      if (!result.success) {
+        res.status(result.status || 400).json({
+          message: result.message
+        });
+    
+        return;
+      }
+
+      if (!otherUserId) {
+        res.status(400).json({
+          message: "No other user",
+        });
+        return;
+      }
+
+      //socket work
+      if (messagesToMarkSeen.length > 0) {
+        const otherUserSocketId = getReceiverSocketId(otherUserId.toString());
+        if (otherUserSocketId) {
+          io.to(otherUserSocketId).emit("messagesSeen", {
+            chatId: chatId,
+            seenBy: userId,
+            messageIds: messagesToMarkSeen.map((msg) => msg._id),
+          });
+        }
+      }
+
+      res.json({
+        messages,
+        user: result.data,
+      });
+    } catch (error) {
+      console.log(error);
+      res.json({
+        messages,
+        user: { _id: otherUserId, name: "Unknown User" },
+      });
+    }
+  }
+);

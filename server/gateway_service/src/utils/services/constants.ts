@@ -15,6 +15,7 @@ export const TOTAL_MS_IN_DAY = 24 * 60 * 60 * 1000;
 export const AUTH_QUEUE = 'AUTH_QUEUE';
 export const USER_QUEUE = 'USER_QUEUE';
 export const MAIL_QUEUE = 'MAIL_QUEUE';
+export const CHAT_QUEUE = "CHAT_QUEUE";
 
 export const PUBLIC_ROUTES = [
     // Auth routes

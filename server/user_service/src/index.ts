@@ -18,5 +18,5 @@ connectRabbitMQ();
 app.use("/api", userRoute);
 
 app.listen(PORT, () => {
-  console.log(`User Service đang chạy trên cổng ${PORT}`);
+  console.log(`User Service on port ${PORT}`);
 });

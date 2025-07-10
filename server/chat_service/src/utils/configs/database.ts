@@ -6,7 +6,7 @@ export const connectMongoWithRetry = async (maxRetries = 5, delay = 5000) => {
     let retries = 0;
     while (retries < maxRetries) {
         try {
-            await mongoose.connect('mongodb://localhost:27017/payment_db', {
+            await mongoose.connect(DATABASE_URL, {
                 serverSelectionTimeoutMS: 5000,
                 connectTimeoutMS: 10000
             });

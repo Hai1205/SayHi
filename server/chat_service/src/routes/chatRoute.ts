@@ -1,22 +1,12 @@
 import express from "express";
-import {
-  getAllUsers,
-  getProfile,
-  rootRoute,
-  createUser,
-  updateUser,
-  deleteUser,
-  createAdminUser
-} from "../controllers/chatController.js";
-import { hasOneOfPermission, isAdmin, isOwner } from "../utils/services/middlewares.js";
+import { upload } from "../utils/services/helper";
+import { createNewChat, getMessagesByChat, getUserChats, sendMessage } from "../controllers/chatController";
 
-const userRoute = express.Router();
-userRoute.get("", rootRoute);
-userRoute.get("/get-all", getAllUsers);
-userRoute.get("/get-profile/:userId", getProfile);
-userRoute.post("/create-user", createUser);
-userRoute.put("/update-user/:userId", hasOneOfPermission(isAdmin, isOwner), updateUser);
-userRoute.delete("/delete-user/:userId", hasOneOfPermission(isAdmin, isOwner), deleteUser);
-userRoute.post("/create-admin-user", hasOneOfPermission(isAdmin), createAdminUser);
 
-export default userRoute;
+const router = express.Router();
+router.post("/chats/create-chat", createNewChat);
+router.get("/chats/get-user-chats/:userId", getUserChats);
+router.post("/messages/send-message/:senderId", upload.single("image"), sendMessage);
+router.get("/messages/get-message-by-chat/:chatId/:userId", getMessagesByChat);
+
+export default router;

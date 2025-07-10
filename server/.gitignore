@@ -1,16 +1,15 @@
-# Tổng quát cho Node.js
+# Node
 node_modules/
 dist/
-.env
-.env.*
 *.log
 npm-debug.log
 .DS_Store
 coverage/
 
-# Prisma
+# DB
 user/prisma/dev.db
 user/prisma/dev.db-journal
+mysql_data/
 
-# Docker
-mysql_data/ 
+# Env
+.env

@@ -1,15 +1,32 @@
 import { Request } from "express";
+import { Document, Types } from "mongoose";
 
 declare global {
-    interface IUser {
-        id: string;
-        name: string;
-        email: string;
-        password: string;
-        role: string;
-        avatar?: string;
-        playlist: string[];
-    }
+    interface IMessage extends Document {
+        chatId: Types.ObjectId;
+        sender: string;
+        text?: string;
+        image?: {
+          url: string;
+          publicId: string;
+        };
+        messageType: "text" | "image";
+        seen: boolean;
+        seenAt?: Date;
+        createdAt: Date;
+        updatedAt: Date;
+      }
+
+      interface IChat extends Document {
+        users: string[];
+        latestMessage: {
+          text: string;
+          sender: string;
+        };
+      
+        createdAt: Date;
+        updatedAt: Date;
+      }
 
     interface IAuthenticatedRequest extends Request {
         isAuth?: boolean;
