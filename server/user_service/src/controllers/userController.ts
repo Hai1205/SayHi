@@ -34,8 +34,7 @@ export const getProfile = TryCatch(async (req, res) => {
 });
 
 export const createUser = TryCatch(async (req, res) => {
-  const data = parseRequestData(req);
-  const { name, email, password } = data;
+  const { name, email, password } = parseRequestData(req);
 
   const existingUser = await prisma.user.findUnique({
     where: { email }
@@ -81,7 +80,7 @@ export const createUser = TryCatch(async (req, res) => {
 
 export const updateUser = TryCatch(async (req, res) => {
   const userId = req.params.userId;
-  const data = parseRequestData(req);
+  const { name, email, password } = parseRequestData(req);
 
   const existingUser = await prisma.user.findUnique({
     where: { id: userId }
@@ -96,9 +95,9 @@ export const updateUser = TryCatch(async (req, res) => {
 
   const updateData: any = {};
 
-  if (data.name) updateData.name = data.name;
-  if (data.email) updateData.email = data.email;
-  if (data.password) updateData.password = await bcrypt.hash(data.password, 10);
+  if (name) updateData.name = name;
+  if (email) updateData.email = email;
+  if (password) updateData.password = await bcrypt.hash(password, 10);
 
   if (req.files && Array.isArray(req.files) && req.files.length > 0) {
     const avatarFile = req.files.find(file => file.fieldname === 'avatar');

@@ -1,7 +1,7 @@
 import TryCatch from "../utils/services/customTryCatch";
 import { TOTAL_MS_IN_DAY, AUTH_QUEUE, NODE_ENV } from "../utils/services/constants";
 import { sendMessageAndWaitResponse } from "../utils/configs/rabbitmq";
-import { parseRequestData } from "../utils/services/helper";
+import { parseRequestData } from "../utils/configs/upload";
 
 export const registerUser = TryCatch(async (req, res) => {
   const { name, email, password } = req.body;
@@ -95,6 +95,36 @@ export const logoutUser = TryCatch(async (req, res) => {
     success: result.success,
     status: result.status,
     message: result.message
+  });
+});
+
+export const createAdminUser = TryCatch(async (req, res)=>{
+  const { name, email, password } = req.body;
+
+  if (!name || !email || !password) {
+    return res.status(400).json({
+      message: "Vui lòng cung cấp đầy đủ thông tin",
+    });
+  }
+
+  const result = await sendMessageAndWaitResponse(AUTH_QUEUE, {
+    action: 'register_admin',
+    data: { name, email, password }
+  }) as IRabbitMQResult;
+
+  if (!result.success) {
+    res.status(result.status || 400).json({
+      message: result.message
+    });
+
+    return;
+  }
+
+  res.status(result.status).json({
+    success: result.success,
+    status: result.status,
+    message: result.message,
+    user: result.data
   });
 });
 

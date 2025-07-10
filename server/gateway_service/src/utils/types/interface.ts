@@ -1,13 +1,10 @@
 import { Request } from "express";
+import { JwtPayload } from "jsonwebtoken";
 
 declare global {
-    interface IUser {
+    interface IDecodedToken extends JwtPayload {
         id: string;
-        name: string;
-        email: string;
-        password: string;
-        role: string;
-        playlist: string[];
+        role?: string;
     }
 
     interface IAuthenticatedRequest extends Request {
@@ -21,7 +18,7 @@ declare global {
         success: boolean;
         status: number;
         message: string;
-        data: IUser;
+        data: object;
         token?: string;
     }
 }

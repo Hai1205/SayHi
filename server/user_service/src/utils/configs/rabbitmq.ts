@@ -1,6 +1,6 @@
 import amqp from 'amqplib';
 import { AUTH_QUEUE, CHAT_QUEUE, MAIL_QUEUE, RABBITMQ_URL, USER_QUEUE } from '../services/constants.js';
-import { registerUser, loginUser, resendOTP, verifyOTP, logoutUser } from '../../controllers/authController.js';
+import { registerUser, loginUser, resendOTP, verifyOTP, logoutUser, createAdminUser } from '../../controllers/authController.js';
 import { getUserById } from '../../controllers/userController.js';
 import { v4 as uuid } from 'uuid';
 
@@ -34,6 +34,7 @@ const QUEUES = [
       verify_otp: verifyOTP,
       resend_otp: resendOTP,
       logout: logoutUser,
+      register_admin: createAdminUser,
     },
   },
   {
