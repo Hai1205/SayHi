@@ -1,20 +1,20 @@
 import { Chat } from "../models/chatModel";
 import { Messages } from "../models/messageModel";
+import { uploadFiles } from "../utils/configs/cloudinary";
 import { sendMessageAndWaitResponse } from "../utils/configs/rabbitmq";
 import { getReceiverSocketId, io } from "../utils/configs/socket";
-import { CHAT_QUEUE } from "../utils/services/constants";
-import TryCatch from "../utils/services/customTryCatch";
+import { CHAT_QUEUE, USER_QUEUE } from "../utils/services/constants";
+import { CustomRequestHandler } from "../utils/services/custom";
 
-export const createNewChat = TryCatch(
+export const createNewChat = CustomRequestHandler(
   async (req: IAuthenticatedRequest, res) => {
     const userId = req.params.userId;
     const { otherUserId } = req.body;
 
     if (!otherUserId) {
-      res.status(400).json({
+      return res.status(400).json({
         message: "Other userId is required",
       });
-      return;
     }
 
     const existingChat = await Chat.findOne({
@@ -22,11 +22,10 @@ export const createNewChat = TryCatch(
     });
 
     if (existingChat) {
-      res.json({
+      return res.json({
         message: "Chat already exist",
         chatId: existingChat._id,
       });
-      return;
     }
 
     const newChat = await Chat.create({
@@ -40,13 +39,12 @@ export const createNewChat = TryCatch(
   }
 );
 
-export const getUserChats = TryCatch(async (req: IAuthenticatedRequest, res) => {
+export const getUserChats = CustomRequestHandler(async (req: IAuthenticatedRequest, res) => {
   const userId = req.params.userId;
   if (!userId) {
-    res.status(400).json({
+    return res.status(400).json({
       message: " UserId missing",
     });
-    return;
   }
 
   const chats = await Chat.find({ users: userId }).sort({ updatedAt: -1 });
@@ -66,32 +64,34 @@ export const getUserChats = TryCatch(async (req: IAuthenticatedRequest, res) => 
           action: 'get_user_by_id',
           data: { userId }
         }) as IRabbitMQResult;
-      
+
         if (!result.success) {
-          res.status(result.status || 400).json({
+          return res.status(result.status || 400).json({
             message: result.message
           });
-      
-          return;
         }
 
         return {
-          user: result.data,
-          chat: {
-            ...chat.toObject(),
-            latestMessage: chat.latestMessage || null,
-            unseenCount,
-          },
+          data: {
+            user: result.data,
+            chat: {
+              ...chat.toObject(),
+              latestMessage: chat.latestMessage || null,
+              unseenCount,
+            },
+          }
         };
       } catch (error) {
         console.log(error);
         return {
-          user: { _id: otherUserId, name: "Unknown User" },
-          chat: {
-            ...chat.toObject(),
-            latestMessage: chat.latestMessage || null,
-            unseenCount,
-          },
+          data: {
+            user: { _id: otherUserId, name: "Unknown User" },
+            chat: {
+              ...chat.toObject(),
+              latestMessage: chat.latestMessage || null,
+              unseenCount,
+            },
+          }
         };
       }
     })
@@ -102,38 +102,34 @@ export const getUserChats = TryCatch(async (req: IAuthenticatedRequest, res) => 
   });
 });
 
-export const sendMessage = TryCatch(async (req: IAuthenticatedRequest, res) => {
+export const sendMessage = CustomRequestHandler(async (req: IAuthenticatedRequest, res) => {
   const senderId = req.params.senderId;
   const { chatId, text } = req.body;
-  const imageFile = req.file;
+  const file = req.file;
 
   if (!senderId) {
-    res.status(401).json({
+    return res.status(401).json({
       message: "unauthorized",
     });
-    return;
   }
   if (!chatId) {
-    res.status(400).json({
+    return res.status(400).json({
       message: "ChatId Required",
     });
-    return;
   }
 
-  if (!text && !imageFile) {
-    res.status(400).json({
+  if (!text && !file) {
+    return res.status(400).json({
       message: "Either text or image is required",
     });
-    return;
   }
 
   const chat = await Chat.findById(chatId);
 
   if (!chat) {
-    res.status(404).json({
+    return res.status(404).json({
       message: "Chat not found",
     });
-    return;
   }
 
   const isUserInChat = chat.users.some(
@@ -141,10 +137,9 @@ export const sendMessage = TryCatch(async (req: IAuthenticatedRequest, res) => {
   );
 
   if (!isUserInChat) {
-    res.status(403).json({
+    return res.status(403).json({
       message: "You are not a participant of this chat",
     });
-    return;
   }
 
   const otherUserId = chat.users.find(
@@ -152,10 +147,9 @@ export const sendMessage = TryCatch(async (req: IAuthenticatedRequest, res) => {
   );
 
   if (!otherUserId) {
-    res.status(401).json({
+    return res.status(401).json({
       message: "No other user",
     });
-    return;
   }
 
   //socket setup
@@ -176,12 +170,10 @@ export const sendMessage = TryCatch(async (req: IAuthenticatedRequest, res) => {
     seenAt: isReceiverInChatRoom ? new Date() : undefined,
   };
 
-  if (imageFile) {
-    messageData.image = {
-      url: imageFile.path,
-      publicId: imageFile.filename,
-    };
-    messageData.messageType = "image";
+  if (file) {
+    const media = await uploadFiles(file, "message");
+    messageData.media = media;
+    messageData.messageType = "media";
     messageData.text = text || "";
   } else {
     messageData.text = text;
@@ -192,7 +184,7 @@ export const sendMessage = TryCatch(async (req: IAuthenticatedRequest, res) => {
 
   const savedMessage = await message.save();
 
-  const latestMessageText = imageFile ? "📷 Image" : text;
+  const latestMessageText = file ? "Media" : text;
 
   await Chat.findByIdAndUpdate(
     chatId,
@@ -232,31 +224,28 @@ export const sendMessage = TryCatch(async (req: IAuthenticatedRequest, res) => {
   });
 });
 
-export const getMessagesByChat = TryCatch(
+export const getMessagesByChat = CustomRequestHandler(
   async (req: IAuthenticatedRequest, res) => {
-    const {userId, chatId} = req.params;
+    const { userId, chatId } = req.params;
 
     if (!userId) {
-      res.status(401).json({
+      return res.status(401).json({
         message: "Unauthorized",
       });
-      return;
     }
 
     if (!chatId) {
-      res.status(400).json({
+      return res.status(400).json({
         message: "ChatId Required",
       });
-      return;
     }
 
     const chat = await Chat.findById(chatId);
 
     if (!chat) {
-      res.status(404).json({
+      return res.status(404).json({
         message: "Chat not found",
       });
-      return;
     }
 
     const isUserInChat = chat.users.some(
@@ -264,10 +253,9 @@ export const getMessagesByChat = TryCatch(
     );
 
     if (!isUserInChat) {
-      res.status(403).json({
+      return res.status(403).json({
         message: "You are not a participant of this chat",
       });
-      return;
     }
 
     const messagesToMarkSeen = await Messages.find({
@@ -293,24 +281,23 @@ export const getMessagesByChat = TryCatch(
     const otherUserId = chat.users.find((id) => id !== userId);
 
     try {
-      const result = await sendMessageAndWaitResponse(CHAT_QUEUE, {
+      const result = await sendMessageAndWaitResponse(USER_QUEUE, {
         action: 'get_user_by_id',
         data: { userId }
       }) as IRabbitMQResult;
-    
+
       if (!result.success) {
         res.status(result.status || 400).json({
           message: result.message
         });
-    
+
         return;
       }
 
       if (!otherUserId) {
-        res.status(400).json({
+        return res.status(400).json({
           message: "No other user",
         });
-        return;
       }
 
       //socket work

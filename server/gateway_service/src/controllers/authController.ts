@@ -1,15 +1,13 @@
-import TryCatch from "../utils/services/customTryCatch";
 import { TOTAL_MS_IN_DAY, AUTH_QUEUE, NODE_ENV } from "../utils/services/constants";
 import { sendMessageAndWaitResponse } from "../utils/configs/rabbitmq";
 import { parseRequestData } from "../utils/configs/upload";
+import { CustomError, CustomRequestHandler } from "../utils/services/custom";
 
-export const registerUser = TryCatch(async (req, res) => {
+export const registerUser = CustomRequestHandler(async (req, res, next) => {
   const { name, email, password } = req.body;
 
   if (!name || !email || !password) {
-    return res.status(400).json({
-      message: "Vui lòng cung cấp đầy đủ thông tin",
-    });
+    return next(new CustomError(400, "Please input full information"));
   }
 
   const result = await sendMessageAndWaitResponse(AUTH_QUEUE, {
@@ -18,29 +16,23 @@ export const registerUser = TryCatch(async (req, res) => {
   }) as IRabbitMQResult;
 
   if (!result.success) {
-    res.status(result.status || 400).json({
-      message: result.message
-    });
-
-    return;
+    return next(new CustomError(result.status, result.message));
   }
 
   res.status(result.status).json({
     success: result.success,
     status: result.status,
     message: result.message,
-    user: result.data
+    user: result.data.user
   });
 });
 
-export const loginUser = TryCatch(async (req, res) => {
+export const loginUser = CustomRequestHandler(async (req, res, next) => {
   const data = parseRequestData(req);
   const { email, password } = data;
 
   if (!email || !password) {
-    return res.status(400).json({
-      message: "Vui lòng cung cấp email và mật khẩu",
-    });
+    return next(new CustomError(400, "Please input full information"));
   }
 
   const result = await sendMessageAndWaitResponse(AUTH_QUEUE, {
@@ -49,13 +41,10 @@ export const loginUser = TryCatch(async (req, res) => {
   }) as IRabbitMQResult;
 
   if (!result.success) {
-    return res.status(result.status || 400).json({
-      success: false,
-      message: result.message || "Đăng nhập thất bại"
-    });
+    return next(new CustomError(result.status, result.message));
   }
 
-  res.cookie("token", result.token as string, {
+  res.cookie("token", result.data.token as string, {
     httpOnly: true,
     secure: NODE_ENV === "production",
     sameSite: "strict",
@@ -66,11 +55,11 @@ export const loginUser = TryCatch(async (req, res) => {
     success: result.success,
     status: result.status,
     message: result.message,
-    user: result.data
+    user: result.data.user
   });
 });
 
-export const logoutUser = TryCatch(async (req, res) => {
+export const logoutUser = CustomRequestHandler(async (req, res, next) => {
   const { email } = req.params;
 
   const result = await sendMessageAndWaitResponse(AUTH_QUEUE, {
@@ -79,10 +68,7 @@ export const logoutUser = TryCatch(async (req, res) => {
   }) as IRabbitMQResult;
 
   if (!result.success) {
-    return res.status(result.status || 400).json({
-      success: false,
-      message: result.message
-    });
+    return next(new CustomError(result.status, result.message));
   }
 
   res.clearCookie("token", {
@@ -98,13 +84,11 @@ export const logoutUser = TryCatch(async (req, res) => {
   });
 });
 
-export const createAdminUser = TryCatch(async (req, res)=>{
+export const createAdminUser = CustomRequestHandler(async (req, res, next)=>{
   const { name, email, password } = req.body;
 
   if (!name || !email || !password) {
-    return res.status(400).json({
-      message: "Vui lòng cung cấp đầy đủ thông tin",
-    });
+    return next(new CustomError(400, "Please input full information"));
   }
 
   const result = await sendMessageAndWaitResponse(AUTH_QUEUE, {
@@ -113,22 +97,18 @@ export const createAdminUser = TryCatch(async (req, res)=>{
   }) as IRabbitMQResult;
 
   if (!result.success) {
-    res.status(result.status || 400).json({
-      message: result.message
-    });
-
-    return;
+    return next(new CustomError(result.status, result.message));
   }
 
   res.status(result.status).json({
     success: result.success,
     status: result.status,
     message: result.message,
-    user: result.data
+    user: result.data.user
   });
 });
 
-export const verifyOTP = TryCatch(async (req, res) => {
+export const verifyOTP = CustomRequestHandler(async (req, res, next) => {
   const { email, otp } = req.body;
 
   const result = await sendMessageAndWaitResponse(AUTH_QUEUE, {
@@ -137,10 +117,7 @@ export const verifyOTP = TryCatch(async (req, res) => {
   }) as IRabbitMQResult;
 
   if (!result.success) {
-    return res.status(result.status || 400).json({
-      success: false,
-      message: result.message
-    });
+    return next(new CustomError(result.status, result.message));
   }
 
   res.status(result.status).json({
@@ -150,7 +127,7 @@ export const verifyOTP = TryCatch(async (req, res) => {
   });
 });
 
-export const resendOTP = TryCatch(async (req, res) => {
+export const resendOTP = CustomRequestHandler(async (req, res, next) => {
   const { email } = req.body;
 
   const result = await sendMessageAndWaitResponse(AUTH_QUEUE, {
@@ -159,10 +136,7 @@ export const resendOTP = TryCatch(async (req, res) => {
   }) as IRabbitMQResult;
 
   if (!result.success) {
-    return res.status(result.status || 400).json({
-      success: false,
-      message: result.message
-    });
+    return next(new CustomError(result.status, result.message));
   }
 
   res.status(result.status).json({

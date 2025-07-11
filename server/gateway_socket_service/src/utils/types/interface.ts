@@ -18,22 +18,8 @@ declare global {
         success: boolean;
         status: number;
         message: string;
-        data: IData;
-    }
-
-    interface IUser {
-        id: string;
-        name: string;
-        email: string;
-        password: string;
-        role: string;
-        avatar?: string;
-        playlist: string[];
-    }
-
-    interface IData {
-        user?: IUser,
-        token?: string,
+        data: object;
+        token?: string;
     }
 }
 

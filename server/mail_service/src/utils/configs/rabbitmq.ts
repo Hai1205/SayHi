@@ -1,5 +1,5 @@
 import amqp from 'amqplib';
-import { AUTH_QUEUE, CHAT_QUEUE, MAIL_QUEUE, RABBITMQ_URL, USER_QUEUE } from '../services/constants.js';
+import { AUTH_QUEUE, CHAT_QUEUE, MAIL_QUEUE, NODE_ENV, RABBITMQ_URL, USER_QUEUE } from '../services/constants.js';
 import { v4 as uuid } from 'uuid';
 
 let channel: amqp.Channel;
@@ -24,22 +24,22 @@ export const connectRabbitMQ = async () => {
 const QUEUES = [
     {
         name: AUTH_QUEUE,
-        durable: false,
+        durable: NODE_ENV === "production" ? true : false,
         handlers: {},
     },
     {
         name: CHAT_QUEUE,
-        durable: false,
+        durable: NODE_ENV === "production" ? true : false,
         handlers: {},
     },
     {
         name: MAIL_QUEUE,
-        durable: false,
+        durable: NODE_ENV === "production" ? true : false,
         handlers: {},
     },
     {
         name: USER_QUEUE,
-        durable: false,
+        durable: NODE_ENV === "production" ? true : false,
         handlers: {},
     },
 ];
@@ -102,7 +102,7 @@ export const sendMessageAndWaitResponse = async (queue: string, message: any) =>
                     if (msg && msg.properties.correlationId === correlationId) {
                         const content = JSON.parse(msg.content.toString());
                         resolve(content);
-                        channel.cancel(consumerTag); // 👈 huỷ
+                        channel.cancel(consumerTag);
                     }
                 },
                 { noAck: true }

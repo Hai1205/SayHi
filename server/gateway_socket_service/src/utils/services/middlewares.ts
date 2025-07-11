@@ -1,7 +1,7 @@
 import { NextFunction, Response } from "express";
 import jwt from "jsonwebtoken";
 import { CLIENT_URL, JWT_SECRET_KEY } from "./constants";
-import { upload } from "../configs/upload"; 
+import { upload } from "../configs/upload";
 import cors from 'cors';
 import { CustomError } from "./custom";
 
@@ -66,14 +66,7 @@ export const acceptFormData = (req: any, res: Response, next: NextFunction) => {
   }
 }
 
-const PUBLIC_ROUTES = [
-  // Auth routes
-  '/api/auth/login',
-  '/api/auth/register',
-
-  // User routes
-  '/api/user/get-all',
-];
+const PUBLIC_ROUTES: string[] = [];
 
 export const checkPublicRoute = (req: IAuthenticatedRequest, res: Response, next: NextFunction) => {
   if (PUBLIC_ROUTES.includes(req.path)) {
@@ -113,7 +106,7 @@ export const hasOneOfPermission = (...checks: ((req: IAuthenticatedRequest, res:
 
 const ALLOWED_ORIGIN: string[] = [
   CLIENT_URL,
-];
+]
 
 export const checkCORS = cors({
   origin: function (origin, callback) {
@@ -130,11 +123,9 @@ export const errorResponse = (err: CustomError, req: IAuthenticatedRequest, res:
   const status = err.status || 500;
   const message = err.message || "Internal Server Error";
 
-  console.log(">>> Error Response: ", err);
-
   return res.status(status).json({
-      success: false,
-      status,
-      message,
+    success: false,
+    status,
+    message,
   });
 }

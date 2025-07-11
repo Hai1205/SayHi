@@ -6,11 +6,11 @@ declare global {
         chatId: Types.ObjectId;
         sender: string;
         text?: string;
-        image?: {
+        media?: {
           url: string;
           publicId: string;
         };
-        messageType: "text" | "image";
+        messageType: "text" | "media";
         seen: boolean;
         seenAt?: Date;
         createdAt: Date;

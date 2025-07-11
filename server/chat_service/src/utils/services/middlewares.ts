@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from "express";
 import { upload } from "./helper.js";
+import { CustomError } from "./custom.js";
 
 export const isAdmin = (req: IAuthenticatedRequest) => req.userRole === 'ADMIN';
 
@@ -39,4 +40,17 @@ export const acceptFormdata = (req: Request, res: Response, next: NextFunction) 
     } else {
         next();
     }
+}
+
+export const errorResponse = (err: CustomError, req: IAuthenticatedRequest, res: Response, next: NextFunction) => {
+    const status = err.status || 500;
+    const message = err.message || "Internal Server Error";
+
+    console.log(">>> Error Response: ", err);
+
+    return res.status(status).json({
+        success: false,
+        status,
+        message,
+    });
 }

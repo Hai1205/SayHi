@@ -1,14 +1,14 @@
-import TryCatch from "../utils/services/customTryCatch.js";
 import { prisma } from "../utils/configs/database.js";
 import bcrypt from "bcrypt";
 import { parseRequestData } from "../utils/services/helper.js";
+import { CustomError, CustomHandler, CustomRequestHandler } from "../utils/services/custom.js";
 
-export const getAllUsers = TryCatch(async (req, res) => {
+export const getAllUsers = CustomRequestHandler(async (req, res, next) => {
   const users = await prisma.user.findMany();
   res.json(users);
 });
 
-export const getUserById = async (data: { userId: string }) => {
+export const getUserById = CustomHandler(async (data: { userId: string }) => {
   const { userId } = data;
   const user = await prisma.user.findUnique({
     where: {
@@ -17,23 +17,23 @@ export const getUserById = async (data: { userId: string }) => {
   });
 
   if (!user) {
-    throw new Error("User not found");
+    throw new CustomError(404, "User not found");
   }
 
   return {
     success: true,
     message: "User fetched successfully",
-    data: user
+    data: { user: user }
   };
-};
+});
 
-export const getProfile = TryCatch(async (req, res) => {
+export const getProfile = CustomRequestHandler(async (req, res, next) => {
   const userId = req.params.userId;
   const result = await getUserById({ userId: userId as string });
   res.json(result.data);
 });
 
-export const createUser = TryCatch(async (req, res) => {
+export const createUser = CustomRequestHandler(async (req, res) => {
   const { name, email, password } = parseRequestData(req);
 
   const existingUser = await prisma.user.findUnique({
@@ -78,7 +78,7 @@ export const createUser = TryCatch(async (req, res) => {
   });
 });
 
-export const updateUser = TryCatch(async (req, res) => {
+export const updateUser = CustomRequestHandler(async (req, res) => {
   const userId = req.params.userId;
   const { name, email, password } = parseRequestData(req);
 
@@ -122,7 +122,7 @@ export const updateUser = TryCatch(async (req, res) => {
   });
 });
 
-export const deleteUser = TryCatch(async (req, res) => {
+export const deleteUser = CustomRequestHandler(async (req, res) => {
   const userId = req.params.userId;
 
   const existingUser = await prisma.user.findUnique({

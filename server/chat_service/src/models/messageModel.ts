@@ -9,16 +9,16 @@ const schema = new Schema<IMessage>(
     },
     sender: {
       type: String,
-      requred: true,
+      required: true,
     },
     text: String,
-    image: {
+    media: {
       url: String,
       publicId: String,
     },
     messageType: {
       type: String,
-      enum: ["text", "image"],
+      enum: ["text", "media"],
       default: "text",
     },
     seen: {

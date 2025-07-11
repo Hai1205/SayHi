@@ -1,5 +1,8 @@
 import { NextFunction, Request, Response } from "express";
 import { upload } from "./helper.js";
+import { GATEWAY_URL } from "./constants.js";
+import cors from 'cors';
+import { CustomError } from "./custom.js";
 
 export const isAdmin = (req: IAuthenticatedRequest) => req.userRole === 'ADMIN';
 
@@ -39,4 +42,32 @@ export const acceptFormdata = (req: Request, res: Response, next: NextFunction) 
     } else {
         next();
     }
+}
+
+const ALLOWED_ORIGIN: string[] = [
+    GATEWAY_URL,
+]
+
+export const checkCORS = cors({
+    origin: function (origin, callback) {
+        if (!origin || ALLOWED_ORIGIN.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error("This address is not allowed by CORS"));
+        }
+    },
+    credentials: true,
+});
+
+export const errorResponse = (err: CustomError, req: IAuthenticatedRequest, res: Response, next: NextFunction) => {
+    const status = err.status || 500;
+    const message = err.message || "Internal Server Error";
+
+    console.log(">>> Error Response: ", err);
+
+    return res.status(status).json({
+        success: false,
+        status,
+        message,
+    });
 }

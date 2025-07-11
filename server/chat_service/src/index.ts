@@ -1,7 +1,7 @@
 import express from 'express';
 import { PORT } from './utils/services/constants';
 import connectDatabase from './utils/configs/database';
-import { acceptFormdata } from './utils/services/middlewares';
+import { acceptFormdata, errorResponse } from './utils/services/middlewares';
 import { connectRabbitMQ } from './utils/configs/rabbitmq';
 import chatRoute from './routes/chatRoute';
 
@@ -12,6 +12,8 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use(acceptFormdata);
+
+app.use(errorResponse);
 
 connectDatabase();
 

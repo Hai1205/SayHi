@@ -22,7 +22,6 @@ declare global {
         status: number;
         message: string;
         data: object;
-        token?: string;
     }
 }
 

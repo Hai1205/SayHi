@@ -10,6 +10,7 @@ export const REDIS_URL = process.env.REDIS_URL!;
 export const CLOUDINARY_NAME = process.env.CLOUDINARY_NAME!;
 export const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY!;
 export const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET!;
+export const NODE_ENV = process.env.NODE_ENV!;
 
 export const AUTH_QUEUE = 'AUTH_QUEUE';
 export const USER_QUEUE = 'USER_QUEUE';

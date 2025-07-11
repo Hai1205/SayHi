@@ -10,5 +10,5 @@ connectDatabase();
 connectRabbitMQ();
 
 app.listen(PORT, () => {
-  console.log(`Mail Service đang chạy trên cổng ${PORT}`);
+  console.log(`Mail Service running on port ${PORT}`);
 });

@@ -2,9 +2,8 @@ import express from 'express';
 import { PORT } from './utils/services/constants';
 import cookieParser from 'cookie-parser';
 import { userProxy } from './utils/configs/proxy';
-import authRoute from './routes/authRoute';
 import { connectRabbitMQ } from './utils/configs/rabbitmq';
-import { acceptFormData, checkCORS, checkPublicRoute, errorResponse, requestLogger } from './utils/services/middlewares';
+import { acceptFormData, checkCORS, errorResponse, requestLogger } from './utils/services/middlewares';
 
 const app = express();
 
@@ -18,16 +17,12 @@ app.use(acceptFormData);
 
 app.use(requestLogger);
 
-app.use(checkPublicRoute);
-
 app.use(errorResponse);
+
+app.use("/api/chat", userProxy);
 
 connectRabbitMQ();
 
-app.use("/api/auth", authRoute);
-
-app.use("/api/user", userProxy);
-
 app.listen(PORT, () => {
-  console.log(`API Gateway running on port ${PORT}`);
+  console.log(`API Gateway Service running on port ${PORT}`);
 });

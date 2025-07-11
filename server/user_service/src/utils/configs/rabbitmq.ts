@@ -1,5 +1,5 @@
 import amqp from 'amqplib';
-import { AUTH_QUEUE, CHAT_QUEUE, MAIL_QUEUE, RABBITMQ_URL, USER_QUEUE } from '../services/constants.js';
+import { AUTH_QUEUE, CHAT_QUEUE, MAIL_QUEUE, NODE_ENV, RABBITMQ_URL, USER_QUEUE } from '../services/constants.js';
 import { registerUser, loginUser, resendOTP, verifyOTP, logoutUser, createAdminUser } from '../../controllers/authController.js';
 import { getUserById } from '../../controllers/userController.js';
 import { v4 as uuid } from 'uuid';
@@ -26,9 +26,8 @@ export const connectRabbitMQ = async () => {
 const QUEUES = [
   {
     name: AUTH_QUEUE,
-    durable: false,
+    durable: NODE_ENV === "production" ? true : false,
     handlers: {
-      get_user_by_id: getUserById,
       register: registerUser,
       login: loginUser,
       verify_otp: verifyOTP,
@@ -39,20 +38,20 @@ const QUEUES = [
   },
   {
     name: CHAT_QUEUE,
-    durable: false,
-    handlers: {
-      get_user_by_id: getUserById,
-    },
+    durable: NODE_ENV === "production" ? true : false,
+    handlers: {},
   },
   {
     name: MAIL_QUEUE,
-    durable: false,
+    durable: NODE_ENV === "production" ? true : false,
     handlers: {},
   },
   {
     name: USER_QUEUE,
-    durable: false,
-    handlers: {},
+    durable: NODE_ENV === "production" ? true : false,
+    handlers: {
+      get_user_by_id: getUserById,
+    },
   },
 ];
 
@@ -114,7 +113,7 @@ export const sendMessageAndWaitResponse = async (queue: string, message: any) =>
           if (msg && msg.properties.correlationId === correlationId) {
             const content = JSON.parse(msg.content.toString());
             resolve(content);
-            channel.cancel(consumerTag); // 👈 huỷ
+            channel.cancel(consumerTag);
           }
         },
         { noAck: true }

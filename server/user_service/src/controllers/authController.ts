@@ -1,71 +1,56 @@
-import TryCatch from "../utils/services/customTryCatch.js";
 import { prisma, redisClient } from "../utils/configs/database.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { JWT_SECRET_KEY, MAIL_QUEUE } from "../utils/services/constants.js";
-import { createOTP, parseRequestData } from "../utils/services/helper.js";
+import { createOTP } from "../utils/services/helper.js";
 import { sendMessageAndWaitResponse } from "../utils/configs/rabbitmq.js";
 import { STATUS } from "@prisma/client";
+import { CustomError, CustomHandler } from "../utils/services/custom.js";
 
-export const registerUser = async (data: { name: string; email: string; password: string }) => {
-    try {
-        const { name, email, password } = data;
+export const registerUser = CustomHandler(async (data: { name: string; email: string; password: string }) => {
+    const { name, email, password } = data;
 
-        const existingUser = await prisma.user.findUnique({ where: { email } });
-        if (existingUser) {
-            return {
-                success: false,
-                status: 400,
-                message: "User already exists",
-            };
-        }
+    const existingUser = await prisma.user.findUnique({ where: { email } });
+    if (existingUser) {
+        throw new CustomError(400, "User already exists");
+    }
 
-        const hashPassword = await bcrypt.hash(password, 10);
+    const hashPassword = await bcrypt.hash(password, 10);
 
-        const user = await prisma.user.create({
-            data: { name, email, password: hashPassword },
-        });
+    const user = await prisma.user.create({
+        data: { name, email, password: hashPassword },
+    });
 
-        const otpResult = await createAndStoreOTP(email);
-        if ('error' in otpResult) {
-            return {
-                success: false,
-                status: otpResult.status,
-                message: otpResult.error,
-            };
-        }
+    const otpResult = await createAndStoreOTP(email);
+    if ('error' in otpResult) {
+        throw new CustomError(otpResult.status as number, otpResult.error as string);
+    }
 
-        const message = {
-            to: email,
-            subject: "Welcome to Say Hi",
-            body: `Welcome to Say Hi ${name}. Your OTP is ${otpResult.otp}.`,
-        };
-        const mailResult = await sendMail(message);
-        if (!mailResult.success) {
-            return mailResult;
-        }
+    const message = {
+        to: email,
+        subject: "Welcome to Say Hi",
+        body: `Welcome to Say Hi ${name}. Your OTP is ${otpResult.otp}.`,
+    };
+    const mailResult = await sendMail(message);
+    if (!mailResult.success) {
+        return mailResult;
+    }
 
-        return {
-            success: true,
-            status: 201,
-            message: "User registered successfully",
+    return {
+        success: true,
+        status: 201,
+        message: "User registered successfully",
+        data: {
             user: {
                 id: user.id,
                 name: user.name,
                 email: user.email,
             },
-        };
-    } catch (error) {
-        console.error("Error in registerUser:", error);
-        return {
-            success: false,
-            status: 500,
-            message: "Internal server error",
-        };
-    }
-};
+        }
+    };
+});
 
-const createAndStoreOTP = async (email: string) => {
+const createAndStoreOTP = CustomHandler(async (email: string) => {
     const rateLimitKey = `otp:ratelimit:${email}`;
     const existing = await redisClient.get(rateLimitKey);
 
@@ -80,16 +65,16 @@ const createAndStoreOTP = async (email: string) => {
     await redisClient.set(rateLimitKey, '1', { EX: 60 });
 
     return { otp };
-};
+});
 
-const sendMail = async (message: object) => {
+const sendMail = CustomHandler(async (message: object) => {
     const result = await sendMessageAndWaitResponse(MAIL_QUEUE, {
         action: 'send_mail',
         data: message,
     }) as IRabbitMQResult;
 
     if (!result.success) {
-        return { success: false, status: result.status, message: result.message };
+        throw new CustomError(result.status as number, result.message as string);
     }
 
     return {
@@ -98,163 +83,121 @@ const sendMail = async (message: object) => {
         message: 'Mail sent',
         data: result.data
     };
-};
+});
 
-export const verifyOTP = async (data: { email: string, otp: string }) => {
-    try {
-        const { email, otp } = data;
+export const verifyOTP = CustomHandler(async (data: { email: string; otp: string }) => {
+    const { email, otp } = data;
 
-        const otpKey = `otp:${email}`;
-        const storedOTP = await redisClient.get(otpKey);
+    const otpKey = `otp:${email}`;
+    const storedOTP = await redisClient.get(otpKey);
 
-        if (storedOTP !== otp) {
-            return { success: false, status: 400, message: 'Invalid OTP' };
-        }
-
-        const user = await prisma.user.findUnique({ where: { email } });
-
-        if (!user) {
-            return {
-                success: false,
-                status: 404,
-                message: 'User not found'
-            };
-        }
-
-        await prisma.user.update({
-            where: { email },
-            data: { status: STATUS.ACTIVE }
-        });
-
-        await redisClient.del(otpKey);
-
-        return {
-            success: true,
-            status: 200,
-            message: 'OTP verified',
-        };
-    } catch (error) {
-        console.error("Error in verifyOTP:", error);
-        return {
-            success: false,
-            status: 500,
-            message: "Internal server error"
-        };
+    if (storedOTP !== otp) {
+        throw new CustomError(400, "Invalid OTP");
     }
-};
 
-export const resendOTP = async (data: { email: string }) => {
-    try {
-        const otpResult = await createAndStoreOTP(data.email);
-        if ('error' in otpResult) {
-            return otpResult;
-        }
+    const user = await prisma.user.findUnique({ where: { email } });
 
-        const message = {
-            to: data.email,
-            subject: "Welcome to Say Hi",
-            body: `Welcome to Say Hi. Your OTP is ${otpResult.otp}.`,
-        };
-        const mailResult = await sendMail(message);
-        if (!mailResult.success) {
-            return mailResult;
-        }
-
-        return {
-            success: true,
-            status: 200,
-            message: 'OTP resent'
-        };
-    } catch (error) {
-        console.error("Error in verifyOTP:", error);
-        return {
-            success: false,
-            status: 500,
-            message: "Internal server error"
-        };
+    if (!user) {
+        throw new CustomError(404, "User not found");
     }
-};
 
-export const loginUser = async (data: { email: string; password: string }) => {
-    try {
-        const { email, password } = data;
+    await prisma.user.update({
+        where: { email },
+        data: { status: STATUS.ACTIVE },
+    });
 
-        const user = await prisma.user.findUnique({
-            where: { email }
-        });
+    await redisClient.del(otpKey);
 
-        if (!user) {
-            return {
-                success: false,
-                status: 404,
-                message: "User not found"
-            };
-        }
+    return {
+        success: true,
+        status: 200,
+        message: "OTP verified",
+    };
+});
 
-        const isMatch = await bcrypt.compare(password, user.password);
+export const resendOTP = CustomHandler(async (data: { email: string }) => {
+    const otpResult = await createAndStoreOTP(data.email);
+    if ("error" in otpResult) {
+        throw otpResult;
+    }
 
-        if (!isMatch) {
-            return {
-                success: false,
-                status: 400,
-                message: "Invalid password"
-            };
-        }
+    const message = {
+        to: data.email,
+        subject: "Welcome to Say Hi",
+        body: `Welcome to Say Hi. Your OTP is ${otpResult.otp}.`,
+    };
+    const mailResult = await sendMail(message);
+    if (!mailResult.success) {
+        return mailResult;
+    }
 
-        const loginKey = `login:${email}`;
-        const storedLogin = await redisClient.get(loginKey);
-        if (storedLogin) {
-            return {
-                success: false,
-                status: 400,
-                message: "User already logged in"
-            };
-        }
+    return {
+        success: true,
+        status: 200,
+        message: "OTP resent",
+    };
+});
 
-        const token = jwt.sign({
+export const loginUser = CustomHandler(async (data: { email: string; password: string }) => {
+    const { email, password } = data;
+
+    const user = await prisma.user.findUnique({
+        where: { email },
+    });
+
+    if (!user) {
+        throw new CustomError(404, "User not found");
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+        throw new CustomError(400, "Invalid password");
+    }
+
+    const loginKey = `login:${email}`;
+    const storedLogin = await redisClient.get(loginKey);
+    if (storedLogin) {
+        throw new CustomError(400, "User already logged in");
+    }
+
+    const token = jwt.sign(
+        {
             id: user.id,
-            role: user?.role
-        }, JWT_SECRET_KEY, {
-            expiresIn: "7d"
-        });
+            role: user?.role,
+        },
+        JWT_SECRET_KEY,
+        {
+            expiresIn: "7d",
+        }
+    );
 
-        return {
-            success: true,
-            status: 200,
-            message: "Logged in successfully",
+    return {
+        success: true,
+        status: 200,
+        message: "Logged in successfully",
+        data: {
             token,
             user: {
                 id: user.id,
                 name: user.name,
                 email: user.email,
-                role: user.role
-            }
-        };
-    } catch (error) {
-        console.error('Error in loginUser:', error);
-        return {
-            success: false,
-            status: 500,
-            message: "Internal server error"
-        };
-    }
-};
+                role: user.role,
+            },
+        }
+    };
+});
 
-export const logoutUser = async (data: { email: string }) => {
+export const logoutUser = CustomHandler(async (data: { email: string }) => {
     const { email } = data;
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
-        return { success: false, status: 404, message: 'User not found' };
+        return { success: false, status: 404, message: "User not found" };
     }
 
     const loginKey = `login:${email}`;
     const storedLogin = await redisClient.get(loginKey);
     if (!storedLogin) {
-        return {
-            success: false,
-            status: 400,
-            message: "User not logged in"
-        };
+        throw new CustomError(400, "User not logged in");
     }
 
     await redisClient.del(loginKey);
@@ -262,19 +205,15 @@ export const logoutUser = async (data: { email: string }) => {
     return {
         success: true,
         status: 200,
-        message: "Logged out successfully"
-    };
-}
+        message: "Logged out successfully",
+    }
+});
 
-export const createAdminUser = TryCatch(async (req: IAuthenticatedRequest, res) => {
-    const data = parseRequestData(req);
-    const { name, email, password } = data;
+export const createAdminUser = CustomHandler(async (data: { name: string, email: string, password: string, avatarFile: File }) => {
+    const { name, email, password, avatarFile } = data;
 
     if (!name || !email || !password) {
-        return res.status(400).json({
-            success: false,
-            message: "Vui lòng cung cấp đầy đủ thông tin"
-        });
+        throw new CustomError(400, "Please input full information");
     }
 
     const existingUser = await prisma.user.findUnique({
@@ -282,10 +221,7 @@ export const createAdminUser = TryCatch(async (req: IAuthenticatedRequest, res) 
     });
 
     if (existingUser) {
-        return res.status(400).json({
-            success: false,
-            message: "User already exists"
-        });
+        throw new CustomError(400, "User already exists");
     }
 
     const hashPassword = await bcrypt.hash(password, 10);
@@ -297,26 +233,25 @@ export const createAdminUser = TryCatch(async (req: IAuthenticatedRequest, res) 
         role: 'ADMIN'
     };
 
-    if (req.files && Array.isArray(req.files) && req.files.length > 0) {
-        const avatarFile = req.files.find(file => file.fieldname === 'avatar');
-        if (avatarFile) {
-            userData.avatar = avatarFile.path;
-        }
+    if (avatarFile) {
+        userData.avatar = avatarFile;
     }
 
     const user = await prisma.user.create({
         data: userData
     });
 
-    res.status(201).json({
+    return {
         success: true,
         message: "Admin user created successfully",
-        user: {
-            id: user.id,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-            avatar: user.avatar
+        data: {
+            user: {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                avatar: user.avatar
+            }
         }
-    });
+    }
 });
